@@ -1,0 +1,144 @@
+root@controlplane:~$ kubectl get nodes
+NAME           STATUS   ROLES           AGE   VERSION
+controlplane   Ready    control-plane   16d   v1.37.1
+node01         Ready    <none>          16d   v1.37.1
+root@controlplane:~$ kubectl create configmap pagina-aula6 \
+  --from-literal=index.html="<h1>Aula 6 - Computacao em Nuvem</h1><p>Pagina carregada por ConfigMap</p>"
+configmap/pagina-aula6 created
+root@controlplane:~$ kubectl get configmap pagina-aula6
+NAME           DATA   AGE
+pagina-aula6   1      10s
+root@controlplane:~$ cat <<'EOF' > pod-config.yaml
+apiVersion: v1
+kind: Pod
+metadata:
+  name: web-config
+spec:
+  containers:
+  - name: nginx
+    image: nginx:alpine
+    volumeMounts:
+    - name: pagina
+      mountPath: /usr/share/nginx/html
+  volumes:
+  - name: pagina
+    configMap:
+      name: pagina-aula6
+EOF
+root@controlplane:~$ kubectl apply -f pod-config.yaml
+pod/web-config created
+root@controlplane:~$ kubectl get pods
+NAME         READY   STATUS    RESTARTS   AGE
+web-config   1/1     Running   0          15s
+root@controlplane:~$ kubectl exec web-config -- wget -qO- http://localhost
+<h1>Aula 6 - Computacao em Nuvem</h1><p>Pagina carregada por ConfigMaproot@controlplane:~$ cat <<'EOF' > pv.yamlyaml
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: pv-aula6
+spec:
+  capacity:
+    storage: 100Mi
+  accessModes:
+  - ReadWriteOnce
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: manual
+  hostPath:
+    path: /mnt/data-aula6
+EOF
+root@controlplane:~$ kubectl apply -f pv.yaml
+persistentvolume/pv-aula6 created
+root@controlplane:~$ kubectl get pv
+NAME       CAPACITY   ACCESS MODES   RECLAIM POLICY   STATUS      CLAIM   STORAGECLASS   VOLUMEATTRIBUTESCLASS   REASON   AGE
+pv-aula6   100Mi      RWO            Retain           Available           manual         <unset>                          8s
+root@controlplane:~$ cat <<'EOF' > pvc.yaml
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: pvc-aula6
+spec:
+  storageClassName: manual
+  accessModes:
+  - ReadWriteOnce
+  resources:
+    requests:
+      storage: 50Mi
+EOF
+root@controlplane:~$ kubectl apply -f pvc.yaml
+persistentvolumeclaim/pvc-aula6 created
+root@controlplane:~$ kubectl get pv,pvc       
+NAME                        CAPACITY   ACCESS MODES   RECLAIM POLICY   STATUS   CLAIM               STORAGECLASS   VOLUMEATTRIBUTESCLASS   REASON   AGE
+persistentvolume/pv-aula6   100Mi      RWO            Retain           Bound    default/pvc-aula6   manual         <unset>                          48s
+
+NAME                              STATUS   VOLUME     CAPACITY   ACCESS MODES   STORAGECLASS   VOLUMEATTRIBUTESCLASS   AGE
+persistentvolumeclaim/pvc-aula6   Bound    pv-aula6   100Mi      RWO            manual         <unset>                 21s
+root@controlplane:~$ cat <<'EOF' > pod-dados.yaml
+apiVersion: v1
+kind: Pod
+metadata:
+  name: pod-dados
+spec:
+  containers:
+  - name: app
+    image: busybox:1.36
+    command: ['sh','-c','sleep 3600']
+    volumeMounts:
+    - name: dados
+      mountPath: /dados
+  volumes:
+  - name: dados
+    persistentVolumeClaim:
+      claimName: pvc-aula6
+EOF
+root@controlplane:~$ kubectl apply -f pod-dados.yaml
+pod/pod-dados created
+root@controlplane:~$ kubectl get pod pod-dados
+NAME        READY   STATUS    RESTARTS   AGE
+pod-dados   1/1     Running   0          9s
+root@controlplane:~$ kubectl exec pod-dados -- sh -c 'echo "Dado persistente da Aula 6" > /dados/mensagem.txt'
+root@controlplane:~$ kubectl exec pod-dados -- cat /dados/mensagem.txt 
+Dado persistente da Aula 6
+root@controlplane:~$ kubectl delete pod pod-dados
+pod "pod-dados" deleted from default namespace
+root@controlplane:~$ kubectl delete pod pod-dadosos
+pod "pod-dados" deleted from default namespace
+root@controlplane:~$ kubectl get pods
+NAME         READY   STATUS    RESTARTS   AGE
+web-config   1/1     Running   0          5m45s
+root@controlplane:~$ sed 's/name: pod-dados/name: pod-dados-2/' pod-dados.yaml > pod-dados-2.yaml
+root@controlplane:~$ kubectl apply -f pod-dados-2.yaml
+pod/pod-dados-2 created
+root@controlplane:~$ kubectl get pod pod-dados-2
+NAME          READY   STATUS    RESTARTS   AGE
+pod-dados-2   1/1     Running   0          9s
+root@controlplane:~$ kubectl exec pod-dados-2 -- cat /dados/mensagem.txt
+Dado persistente da Aula 6
+root@controlplane:~$ kubectl exec pod-dados-2 -- sh -c 'echo "Grupo: NOME 1 e NOME 2" > /dados/grupo.txt'
+root@controlplane:~$ kubectl delete pod pod-dados-2
+pod "pod-dados-2" deleted from default namespace
+^Croot@controlplane:~$ kubectl delete pod pod-dados-2
+Error from server (NotFound): pods "pod-dados-2" not found
+root@controlplane:~$ sed 's/name: pod-dados/name: pod-dados-3/' pod-dados.yaml > pod-dados-3.yaml
+root@controlplane:~$ kubectl apply -f pod-dados-3.yaml
+pod/pod-dados-3 created
+root@controlplane:~$ kubectl exec pod-dados-3 -- ls -l /dados
+total 8
+-rw-r--r--    1 root     root            23 Oct 22 01:22 grupo.txt
+-rw-r--r--    1 root     root            27 Oct 22 01:19 mensagem.txt
+root@controlplane:~$ kubectl exec pod-dados-3 -- cat /dados/mensagem.txt
+Dado persistente da Aula 6
+root@controlplane:~$ kubectl exec pod-dados-3 -- cat /dados/grupo.txt
+Grupo: NOME 1 e NOME 2
+root@controlplane:~$ kubectl delete pod web-config pod-dados-3 --ignore-not-found
+pod "web-config" deleted from default namespace
+pod "pod-dados-3" deleted from default namespace
+root@controlplane:~$ kubectl delete configmap pagina-aula6a6
+configmap "pagina-aula6" deleted from default namespace
+root@controlplane:~$ kubectl delete pvc pvc-aula6
+persistentvolumeclaim "pvc-aula6" deleted from default namespace
+root@controlplane:~$ kubectl delete pv pv-aula6
+persistentvolume "pv-aula6" deleted
+root@controlplane:~$ kubectl get pv,pvc,configmap,pods
+NAME                         DATA   AGE
+configmap/kube-root-ca.crt   1      16d
+root@controlplane:~$ 
